@@ -14,7 +14,7 @@ import sqlite3
 # -------------------------------------------------------------
 # ŚCIEŻKI PROJEKTU
 # -------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # katalog główny projektu
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # katalog główny projektu
 
 DATA_DIR       = os.path.join(BASE_DIR, "data")
 RAW_DATA_DIR   = os.path.join(DATA_DIR, "CICIDS2017")
@@ -22,6 +22,7 @@ CLEAN_DATA_DIR = os.path.join(DATA_DIR, "cleaned")
 MODEL_DIR      = os.path.join(BASE_DIR, "models")
 REPORTS_DIR    = os.path.join(BASE_DIR, "reports")
 LOGS_DIR       = os.path.join(BASE_DIR, "logs")
+SRC_DIR        = os.path.join(BASE_DIR, "src")
 
 # Pliki pickle / csv
 SCALER_PATH      = os.path.join(DATA_DIR, "scaler.pkl")

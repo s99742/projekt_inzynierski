@@ -3,29 +3,39 @@
 gui_firewall.py - GUI dla realtime firewall z flow-based predykcją
 """
 
+import os
+import sys
+import threading
+import time
+from datetime import datetime
 import tkinter as tk
 from tkinter import ttk
-import threading
 import sqlite3
 import pandas as pd
 from joblib import load
-import time
 
-# --- Import centralnej konfiguracji ---
+# -------------------------------------------------------------
+# Ścieżki
+# -------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)  # żeby importować config i src
+
 from config_and_db import DB_PATH, MODEL_DIR, DEFAULT_INTERFACE, init_db
+init_db()  # upewniamy się, że baza istnieje
 
-# --- Globalne flagi ---
+# -------------------------------------------------------------
+# Globalne zmienne
+# -------------------------------------------------------------
 running = False
 models_loaded = {}
 
-# --- Utwórz bazę jeśli nie istnieje ---
-init_db()
-
-# --- Załaduj modele ---
+# -------------------------------------------------------------
+# Załaduj modele
+# -------------------------------------------------------------
 MODEL_FILES = {
-    "rf": f"{MODEL_DIR}/RandomForest_cicids.pkl",
-    "lr": f"{MODEL_DIR}/LogisticRegression_cicids.pkl",
-    "hgb": f"{MODEL_DIR}/HGB_cicids.pkl"
+    "rf": os.path.join(MODEL_DIR, "RandomForest_pipeline.pkl"),
+    "lr": os.path.join(MODEL_DIR, "LogisticRegression_pipeline.pkl"),
+    "hgb": os.path.join(MODEL_DIR, "HGB_pipeline.pkl")
 }
 
 for key, path in MODEL_FILES.items():
@@ -35,28 +45,117 @@ for key, path in MODEL_FILES.items():
     except Exception as e:
         print(f"⚠️ Nie udało się załadować modelu {key}: {e}")
 
-# --- Import flow-based predykcji ---
-from src.realtime_flow_predict import process_packet as flow_process_packet, models as global_models
-global_models.update(models_loaded)
+# -------------------------------------------------------------
+# Import funkcji flow
+# -------------------------------------------------------------
+sys.path.append(os.path.join(BASE_DIR, "src"))
+from realtime_flow_predict import flows, extract_flow_features
 
-# --- Funkcje obsługi bazy danych ---
-def fetch_latest_logs(limit=20):
-    conn = sqlite3.connect(DB_PATH)
+# -------------------------------------------------------------
+# Funkcje obsługi bazy danych
+# -------------------------------------------------------------
+def log_flow_to_db(flow_key, preds, decision):
     try:
-        df = pd.read_sql_query(f"SELECT * FROM logs ORDER BY id DESC LIMIT {limit}", conn)
-    except Exception:
-        df = pd.DataFrame()
-    finally:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        ts = datetime.now().isoformat()
+        c.execute("""
+            INSERT INTO logs(timestamp, src_ip, dst_ip, src_port, dst_port, protocol, prediction, decision)
+            VALUES(?,?,?,?,?,?,?,?)
+        """, (
+            ts,
+            flow_key[0],
+            flow_key[1],
+            flow_key[2],
+            flow_key[3],
+            flow_key[4],
+            str(preds),
+            decision
+        ))
+        conn.commit()
         conn.close()
-    return df
+    except Exception as e:
+        print("❌ Błąd przy zapisie do DB:", e)
 
-# --- GUI ---
+def fetch_latest_logs(limit=20):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        df = pd.read_sql_query(f"SELECT * FROM logs ORDER BY id DESC LIMIT {limit}", conn)
+        conn.close()
+        return df
+    except:
+        return pd.DataFrame()
+
+# -------------------------------------------------------------
+# Funkcja przetwarzania pakietu (flow-based)
+# -------------------------------------------------------------
+def process_packet(pkt, enabled_models):
+    from scapy.layers.inet import IP, TCP, UDP
+    from scapy.layers.l2 import Ether
+
+    if not (IP in pkt or pkt.haslayer(Ether)):
+        return
+
+    src_ip = pkt[IP].src if IP in pkt else "0.0.0.0"
+    dst_ip = pkt[IP].dst if IP in pkt else "0.0.0.0"
+    proto = pkt[IP].proto if IP in pkt else 0
+    src_port = pkt[TCP].sport if TCP in pkt else (pkt[UDP].sport if UDP in pkt else 0)
+    dst_port = pkt[TCP].dport if TCP in pkt else (pkt[UDP].dport if UDP in pkt else 0)
+
+    flow_key = (src_ip, dst_ip, src_port, dst_port, proto)
+    ts = time.time()
+    flow = flows[flow_key]
+    if flow["start_time"] is None:
+        flow["start_time"] = ts
+
+    # forward/backward
+    if (src_ip, src_port) == (flow_key[0], flow_key[2]):
+        flow["fwd_lengths"].append(len(pkt))
+        if TCP in pkt:
+            for flag in ["FIN","SYN","RST","PSH","ACK","URG"]:
+                if getattr(pkt[TCP], flag, 0):
+                    flow["fwd_flags"][flag] += 1
+    else:
+        flow["bwd_lengths"].append(len(pkt))
+        if TCP in pkt:
+            for flag in ["FIN","SYN","RST","PSH","ACK","URG"]:
+                if getattr(pkt[TCP], flag, 0):
+                    flow["bwd_flags"][flag] += 1
+
+    flow["timestamps"].append(ts)
+
+    # timeout 10s
+    if ts - flow["start_time"] > 10:
+        features = extract_flow_features(flow_key, flow)
+        preds = {}
+        decision = "ACCEPT"
+
+        for name, model in enabled_models.items():
+            try:
+                pred = model.predict([features])[0]
+                preds[name] = int(pred)
+                if pred != 0:
+                    decision = "DROP"
+            except Exception as e:
+                preds[name] = "error"
+                print(f"⚠️ Błąd predykcji {name}: {e}")
+
+        print(f"{datetime.now().isoformat()} | Flow: {flow_key} | Features: {features} | Preds: {preds} | Decision: {decision}")
+        log_flow_to_db(flow_key, preds, decision)
+        try:
+            del flows[flow_key]
+        except KeyError:
+            pass
+
+# -------------------------------------------------------------
+# GUI
+# -------------------------------------------------------------
 class FirewallGUI:
     def __init__(self, root):
         self.root = root
         root.title("Realtime Firewall GUI")
 
-        # Modele
+        # modele
         self.rf_var = tk.BooleanVar(value=True)
         self.lr_var = tk.BooleanVar(value=True)
         self.hgb_var = tk.BooleanVar(value=True)
@@ -67,7 +166,7 @@ class FirewallGUI:
         tk.Checkbutton(frame_models, text="LogisticRegression", variable=self.lr_var).pack(side="left")
         tk.Checkbutton(frame_models, text="HGB", variable=self.hgb_var).pack(side="left")
 
-        # Start / Stop
+        # przyciski
         frame_buttons = tk.Frame(root)
         frame_buttons.pack(fill="x", padx=5, pady=5)
         self.start_btn = tk.Button(frame_buttons, text="Start Nasłuchu", command=self.start_sniff)
@@ -75,10 +174,10 @@ class FirewallGUI:
         self.stop_btn = tk.Button(frame_buttons, text="Stop", command=self.stop_sniff, state="disabled")
         self.stop_btn.pack(side="left", padx=5)
 
-        # Logi
+        # logi
         frame_logs = tk.LabelFrame(root, text="Ostatnie pakiety")
         frame_logs.pack(fill="both", expand=True, padx=5, pady=5)
-        columns = ["id", "timestamp", "src_ip", "dst_ip", "src_port", "dst_port", "protocol", "prediction", "decision"]
+        columns = ["id","timestamp","src_ip","dst_ip","src_port","dst_port","protocol","prediction","decision"]
         self.tree = ttk.Treeview(frame_logs, columns=columns, show="headings")
         for col in columns:
             self.tree.heading(col, text=col)
@@ -102,9 +201,14 @@ class FirewallGUI:
         if running:
             return
         running = True
+        enabled_models = {}
+        if self.rf_var.get() and "rf" in models_loaded: enabled_models["rf"] = models_loaded["rf"]
+        if self.lr_var.get() and "lr" in models_loaded: enabled_models["lr"] = models_loaded["lr"]
+        if self.hgb_var.get() and "hgb" in models_loaded: enabled_models["hgb"] = models_loaded["hgb"]
+
         from scapy.all import sniff
         self.sniff_thread = threading.Thread(
-            target=lambda: sniff(iface=DEFAULT_INTERFACE, prn=flow_process_packet, store=False),
+            target=lambda: sniff(iface=DEFAULT_INTERFACE, prn=lambda pkt: process_packet(pkt, enabled_models), store=False),
             daemon=True
         )
         self.sniff_thread.start()
@@ -117,7 +221,9 @@ class FirewallGUI:
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
 
-# --- Uruchomienie GUI ---
+# -------------------------------------------------------------
+# Uruchomienie GUI
+# -------------------------------------------------------------
 if __name__ == "__main__":
     root = tk.Tk()
     gui = FirewallGUI(root)

@@ -1,20 +1,7 @@
-#!/usr/bin/env python3
-"""
-log_db.py
-
-Moduł pomocniczy do logowania uruchomień do SQLite.
-Funkcje:
- - create_db(db_path)         : tworzy plik bazy i tabelę logs (jeśli nie istnieje)
- - log_run(...)               : zapisuje wpis logu
- - fetch_logs(limit=100)      : zwraca ostatnie wpisy (lista dict)
-"""
-
 import sqlite3
-import os
 from datetime import datetime
 from typing import Optional, List, Dict
-
-DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "logs", "project_logs.db")
+from config_and_db import DB_PATH, init_db
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS logs (
@@ -31,20 +18,8 @@ CREATE TABLE IF NOT EXISTS logs (
 """
 
 def create_db(db_path: Optional[str] = None) -> str:
-    """
-    Tworzy katalog logs i plik bazy jeśli nie istnieje oraz tabelę logs.
-    Zwraca ścieżkę do pliku bazy.
-    """
-    db_path = db_path or DEFAULT_DB_PATH
-    logs_dir = os.path.dirname(db_path)
-    os.makedirs(logs_dir, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        c = conn.cursor()
-        c.execute(CREATE_TABLE_SQL)
-        conn.commit()
-    finally:
-        conn.close()
+    db_path = db_path or DB_PATH
+    init_db()  # upewniamy się, że baza jest gotowa
     return db_path
 
 def log_run(script: str,
@@ -55,19 +30,8 @@ def log_run(script: str,
             f1_score: Optional[float] = None,
             notes: Optional[str] = None,
             db_path: Optional[str] = None) -> None:
-    """
-    Zapisuje uruchomienie/skrócony wynik do tabeli logs.
-    - script: nazwa skryptu (predict_models, train_model, ...)
-    - n_rows: liczba wczytanych wierszy wejściowych (może być None)
-    - models_used: "rf,lr,hgb"
-    - ensemble_used: True/False
-    - accuracy, f1_score: wartości metryk (lub None)
-    - notes: dowolny tekst (błędy, komentarze)
-    """
-    db_path = db_path or DEFAULT_DB_PATH
-    # upewnij się, że baza jest dostępna
+    db_path = db_path or DB_PATH
     create_db(db_path)
-
     conn = sqlite3.connect(db_path)
     try:
         c = conn.cursor()
@@ -80,14 +44,7 @@ def log_run(script: str,
         conn.close()
 
 def fetch_logs(limit: int = 100, db_path: Optional[str] = None) -> List[Dict]:
-    """
-    Pobiera ostatnie wpisy z logs (domyślnie 100).
-    Zwraca listę słowników.
-    """
-    db_path = db_path or DEFAULT_DB_PATH
-    if not os.path.exists(db_path):
-        return []
-
+    db_path = db_path or DB_PATH
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
