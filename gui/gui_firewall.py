@@ -7,50 +7,25 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 import sqlite3
-import os
 import pandas as pd
 from joblib import load
-import sys
 import time
 
-# --- Ścieżki ---
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, "logs/project_logs.db")
-MODEL_DIR = os.path.join(BASE_DIR, "models")
-INTERFACE = "wlp3s0"  # zmień jeśli Twój interfejs jest inny
-
-# --- Dodaj src do sys.path, żeby można było importować moduły lokalne ---
-sys.path.append(os.path.join(BASE_DIR, "src"))
+# --- Import centralnej konfiguracji ---
+from config_and_db import DB_PATH, MODEL_DIR, DEFAULT_INTERFACE, init_db
 
 # --- Globalne flagi ---
 running = False
 models_loaded = {}
 
 # --- Utwórz bazę jeśli nie istnieje ---
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-conn = sqlite3.connect(DB_PATH)
-c = conn.cursor()
-c.execute("""
-CREATE TABLE IF NOT EXISTS logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT,
-    src_ip TEXT,
-    dst_ip TEXT,
-    src_port INTEGER,
-    dst_port INTEGER,
-    protocol TEXT,
-    prediction TEXT,
-    decision TEXT
-)
-""")
-conn.commit()
-conn.close()
+init_db()
 
 # --- Załaduj modele ---
 MODEL_FILES = {
-    "rf": os.path.join(MODEL_DIR, "RandomForest_cicids.pkl"),
-    "lr": os.path.join(MODEL_DIR, "LogisticRegression_cicids.pkl"),
-    "hgb": os.path.join(MODEL_DIR, "HGB_cicids.pkl")
+    "rf": f"{MODEL_DIR}/RandomForest_cicids.pkl",
+    "lr": f"{MODEL_DIR}/LogisticRegression_cicids.pkl",
+    "hgb": f"{MODEL_DIR}/HGB_cicids.pkl"
 }
 
 for key, path in MODEL_FILES.items():
@@ -61,7 +36,7 @@ for key, path in MODEL_FILES.items():
         print(f"⚠️ Nie udało się załadować modelu {key}: {e}")
 
 # --- Import flow-based predykcji ---
-from realtime_flow_predict import process_packet as flow_process_packet, models as global_models
+from src.realtime_flow_predict import process_packet as flow_process_packet, models as global_models
 global_models.update(models_loaded)
 
 # --- Funkcje obsługi bazy danych ---
@@ -81,7 +56,7 @@ class FirewallGUI:
         self.root = root
         root.title("Realtime Firewall GUI")
 
-        # --- Modele ---
+        # Modele
         self.rf_var = tk.BooleanVar(value=True)
         self.lr_var = tk.BooleanVar(value=True)
         self.hgb_var = tk.BooleanVar(value=True)
@@ -92,7 +67,7 @@ class FirewallGUI:
         tk.Checkbutton(frame_models, text="LogisticRegression", variable=self.lr_var).pack(side="left")
         tk.Checkbutton(frame_models, text="HGB", variable=self.hgb_var).pack(side="left")
 
-        # --- Start / Stop ---
+        # Start / Stop
         frame_buttons = tk.Frame(root)
         frame_buttons.pack(fill="x", padx=5, pady=5)
         self.start_btn = tk.Button(frame_buttons, text="Start Nasłuchu", command=self.start_sniff)
@@ -100,16 +75,14 @@ class FirewallGUI:
         self.stop_btn = tk.Button(frame_buttons, text="Stop", command=self.stop_sniff, state="disabled")
         self.stop_btn.pack(side="left", padx=5)
 
-        # --- Logi ---
+        # Logi
         frame_logs = tk.LabelFrame(root, text="Ostatnie pakiety")
         frame_logs.pack(fill="both", expand=True, padx=5, pady=5)
-
         columns = ["id", "timestamp", "src_ip", "dst_ip", "src_port", "dst_port", "protocol", "prediction", "decision"]
         self.tree = ttk.Treeview(frame_logs, columns=columns, show="headings")
         for col in columns:
             self.tree.heading(col, text=col)
         self.tree.pack(fill="both", expand=True)
-
         self.update_logs()
 
     def update_logs(self):
@@ -131,7 +104,7 @@ class FirewallGUI:
         running = True
         from scapy.all import sniff
         self.sniff_thread = threading.Thread(
-            target=lambda: sniff(iface=INTERFACE, prn=flow_process_packet, store=False),
+            target=lambda: sniff(iface=DEFAULT_INTERFACE, prn=flow_process_packet, store=False),
             daemon=True
         )
         self.sniff_thread.start()
@@ -143,7 +116,6 @@ class FirewallGUI:
         running = False
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
-
 
 # --- Uruchomienie GUI ---
 if __name__ == "__main__":
