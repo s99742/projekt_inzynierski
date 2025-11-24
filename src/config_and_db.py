@@ -5,11 +5,41 @@ config_and_db.py
 Centralny plik konfiguracji i inicjalizacji bazy danych dla projektu:
 - Definiuje ścieżki do danych, modeli, logów
 - Tworzy bazy SQLite i potrzebne tabele
-- Może być importowany we wszystkich skryptach projektu
+- Automatycznie wykrywa aktywny interfejs sieciowy
 """
 
 import os
 import sqlite3
+import psutil
+import socket
+
+# -------------------------------------------------------------
+# FUNKCJA AUTOMATYCZNEGO WYKRYWANIA INTERFEJSU
+# -------------------------------------------------------------
+def detect_active_interface():
+    """
+    Automatycznie wykrywa aktywny interfejs sieciowy, który:
+    - jest UP
+    - ma adres IPv4 (nie 127.0.0.1)
+    - nie jest interfejsem lo, dockerowym, wirtualnym
+    """
+    ignore = {"lo", "docker0", "virbr0"}
+
+    for iface, addrs in psutil.net_if_addrs().items():
+        if iface in ignore:
+            continue
+
+        stats = psutil.net_if_stats().get(iface)
+        if not stats or not stats.isup:
+            continue
+
+        # sprawdzamy czy interfejs ma IPv4
+        for addr in addrs:
+            if addr.family == socket.AF_INET and addr.address != "127.0.0.1":
+                return iface
+
+    return None
+
 
 # -------------------------------------------------------------
 # ŚCIEŻKI PROJEKTU
@@ -36,8 +66,11 @@ PREDICTIONS_PATH = os.path.join(DATA_DIR, "predictions.csv")
 # Baza SQLite
 DB_PATH = os.path.join(LOGS_DIR, "project_logs.db")
 
-# Domyślny interfejs sieciowy
-DEFAULT_INTERFACE = "wlp3s0"  # zmień w razie potrzeby
+# -------------------------------------------------------------
+# AUTOMATYCZNIE WYKRYTY INTERFEJS
+# -------------------------------------------------------------
+DEFAULT_INTERFACE = detect_active_interface()
+print(f"🌐 Wykryty interfejs sieciowy: {DEFAULT_INTERFACE}")
 
 # -------------------------------------------------------------
 # TWORZENIE KATALOGÓW
@@ -100,11 +133,12 @@ def init_db(db_path=DB_PATH):
 
     conn.commit()
     conn.close()
-    print(f"Baza danych utworzona lub zaktualizowana: {db_path}")
+    print(f"✅ Baza danych utworzona lub zaktualizowana: {db_path}")
+
 
 # -------------------------------------------------------------
 # AUTOMATYCZNE WYWOŁANIE PRZY URUCHOMIENIU PLIKU
 # -------------------------------------------------------------
 if __name__ == "__main__":
     init_db()
-    print("Wszystkie katalogi i tabele gotowe do użycia w projekcie")
+    print("🌟 Wszystkie katalogi i tabele gotowe do użycia w projekcie")

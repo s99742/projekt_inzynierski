@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 predict_models.py
-Predykcja przy użyciu RandomForest, LogisticRegression, HistGradientBoosting (HGB).
+Predykcja przy użyciu RandomForest, LogisticRegression, MLP.
 Po wykonaniu zapisuje log do sqlite3 (logs/project_logs.db) przez log_db.log_run().
 """
 
@@ -16,9 +16,9 @@ from log_db import log_run, create_db
 
 MODEL_DIR = "../models/"
 MODEL_FILES = {
-    "rf": os.path.join(MODEL_DIR, "RandomForest_cicids.pkl"),
-    "lr": os.path.join(MODEL_DIR, "LogisticRegression_cicids.pkl"),
-    "hgb": os.path.join(MODEL_DIR, "HGB_cicids.pkl")
+    "rf": os.path.join(MODEL_DIR, "RandomForest_pipeline.pkl"),
+    "lr": os.path.join(MODEL_DIR, "LogisticRegression_pipeline.pkl"),
+    "mlp": os.path.join(MODEL_DIR, "MLP_pipeline.pkl")
 }
 
 TRAIN_FEATURES_CSV = "../data/X_train.csv"
@@ -26,12 +26,12 @@ DEFAULT_Y_TEST = "../data/y_test.csv"
 DEFAULT_DB = os.path.join(os.path.dirname(__file__), "..", "logs", "project_logs.db")
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Predict with RF / LR / HGB models and optionally ensemble.")
+    p = argparse.ArgumentParser(description="Predict with RF / LR / MLP models and optionally ensemble.")
     p.add_argument("--input", "-i", default="../data/X_test.csv", help="CSV z danymi do predykcji.")
     p.add_argument("--out", "-o", default="../data/predictions.csv", help="Ścieżka do zapisu wyników CSV.")
     p.add_argument("--rf", action="store_true", help="Włącz RandomForest")
     p.add_argument("--lr", action="store_true", help="Włącz LogisticRegression")
-    p.add_argument("--hgb", action="store_true", help="Włącz HistGradientBoosting (HGB)")
+    p.add_argument("--mlp", action="store_true", help="Włącz MLP")
     p.add_argument("--ensemble", action="store_true", help="Majority-vote ensemble")
     p.add_argument("--features-from", default=TRAIN_FEATURES_CSV, help="CSV z listą cech (X_train.csv)")
     p.add_argument("--ytest", default=DEFAULT_Y_TEST, help="(Opcjonalnie) CSV z prawdziwymi etykietami do policzenia metryk")
@@ -53,14 +53,14 @@ def ensure_features(input_df, features_csv):
 
 def safe_load_model(path):
     if not os.path.exists(path):
-        print(f"Model nie znaleziony: {path}")
+        print(f"⚠️ Model nie znaleziony: {path}")
         return None
     try:
         m = joblib.load(path)
-        print(f"Załadowano model: {os.path.basename(path)}")
+        print(f"✅ Załadowano model: {os.path.basename(path)}")
         return m
     except Exception as e:
-        print(f"Błąd przy ładowaniu modelu {path}: {e}")
+        print(f"❌ Błąd przy ładowaniu modelu {path}: {e}")
         return None
 
 def predict_with_model(model, X, batch_size=5000):
@@ -101,7 +101,6 @@ def majority_vote(preds_list):
     return np.array(final)
 
 def safe_read_ytest(ytest_path, expected_len):
-    """Spróbuj wczytać y_test tylko jeśli plik istnieje i długość się zgadza."""
     if not os.path.exists(ytest_path):
         return None
     try:
@@ -114,26 +113,25 @@ def safe_read_ytest(ytest_path, expected_len):
 
 def main():
     args = parse_args()
-    # ensure DB exists
     create_db(DEFAULT_DB)
 
     use_rf = bool(args.rf)
     use_lr = bool(args.lr)
-    use_hgb = bool(args.hgb)
-    if not (use_rf or use_lr or use_hgb):
-        use_rf = use_lr = use_hgb = True
+    use_mlp = bool(args.mlp)
+    if not (use_rf or use_lr or use_mlp):
+        use_rf = use_lr = use_mlp = True
 
     print("Konfiguracja modeli:")
     print(f"  RandomForest: {use_rf}")
     print(f"  LogisticRegression: {use_lr}")
-    print(f"  HGB: {use_hgb}")
+    print(f"  MLP: {use_mlp}")
     print(f"  Ensemble majority-vote: {args.ensemble}\n")
 
     if not os.path.exists(args.input):
         print(f"Plik wejściowy nie istnieje: {args.input}")
         sys.exit(1)
     in_df = pd.read_csv(args.input, low_memory=False)
-    print(f"Wczytano dane: {in_df.shape[0]} wierszy, {in_df.shape[1]} kolumn")
+    print(f"✅ Wczytano dane: {in_df.shape[0]} wierszy, {in_df.shape[1]} kolumn")
 
     X = ensure_features(in_df, args.features_from)
 
@@ -142,8 +140,8 @@ def main():
         models_loaded["rf"] = safe_load_model(MODEL_FILES["rf"])
     if use_lr:
         models_loaded["lr"] = safe_load_model(MODEL_FILES["lr"])
-    if use_hgb:
-        models_loaded["hgb"] = safe_load_model(MODEL_FILES["hgb"])
+    if use_mlp:
+        models_loaded["mlp"] = safe_load_model(MODEL_FILES["mlp"])
 
     models_loaded = {k: v for k, v in models_loaded.items() if v is not None}
     if len(models_loaded) == 0:
@@ -177,6 +175,7 @@ def main():
     print(f"\n🎉 Zapisano predykcje do: {out_path}")
     print(results.head(10))
 
+    # Metryki
     y_test = safe_read_ytest(args.ytest, len(results))
     accuracy = None
     f1 = None
@@ -193,7 +192,6 @@ def main():
             notes = f"Error computing metrics: {e}"
 
     models_used = ",".join(list(models_loaded.keys()))
-    # zapisz log
     log_run(script="predict_models",
             n_rows=int(X.shape[0]),
             models_used=models_used,

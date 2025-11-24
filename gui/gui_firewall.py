@@ -35,7 +35,7 @@ models_loaded = {}
 MODEL_FILES = {
     "rf": os.path.join(MODEL_DIR, "RandomForest_pipeline.pkl"),
     "lr": os.path.join(MODEL_DIR, "LogisticRegression_pipeline.pkl"),
-    "hgb": os.path.join(MODEL_DIR, "HGB_pipeline.pkl")
+    "mlp": os.path.join(MODEL_DIR, "MLP_pipeline.pkl")
 }
 
 for key, path in MODEL_FILES.items():
@@ -158,13 +158,13 @@ class FirewallGUI:
         # modele
         self.rf_var = tk.BooleanVar(value=True)
         self.lr_var = tk.BooleanVar(value=True)
-        self.hgb_var = tk.BooleanVar(value=True)
+        self.mlp_var = tk.BooleanVar(value=True)
 
         frame_models = tk.LabelFrame(root, text="Włączone modele")
         frame_models.pack(fill="x", padx=5, pady=5)
         tk.Checkbutton(frame_models, text="RandomForest", variable=self.rf_var).pack(side="left")
         tk.Checkbutton(frame_models, text="LogisticRegression", variable=self.lr_var).pack(side="left")
-        tk.Checkbutton(frame_models, text="HGB", variable=self.hgb_var).pack(side="left")
+        tk.Checkbutton(frame_models, text="MLP", variable=self.mlp_var).pack(side="left")
 
         # przyciski
         frame_buttons = tk.Frame(root)
@@ -204,7 +204,7 @@ class FirewallGUI:
         enabled_models = {}
         if self.rf_var.get() and "rf" in models_loaded: enabled_models["rf"] = models_loaded["rf"]
         if self.lr_var.get() and "lr" in models_loaded: enabled_models["lr"] = models_loaded["lr"]
-        if self.hgb_var.get() and "hgb" in models_loaded: enabled_models["hgb"] = models_loaded["hgb"]
+        if self.mlp_var.get() and "mlp" in models_loaded: enabled_models["mlp"] = models_loaded["mlp"]
 
         from scapy.all import sniff
         self.sniff_thread = threading.Thread(

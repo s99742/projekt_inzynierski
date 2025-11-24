@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 train_model.py - Trenuje modele ML dla CICIDS2017 w pipeline z scalerem.
-Nie używa imblearn. Obsługuje nierównowagę klas przez class_weight='balanced'.
 Zapisuje pipeline jako jeden plik .pkl dla realtime predykcji.
 """
 
 import os
 import joblib
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import classification_report, accuracy_score, f1_score, confusion_matrix
 from log_db import log_run, create_db
@@ -29,11 +29,11 @@ def main():
     y_test  = pd.read_pickle(os.path.join(DATA_DIR, "y_test.pkl")).values.ravel()
     scaler  = joblib.load(os.path.join(DATA_DIR, "scaler.pkl"))
 
-    # Modele z class_weight='balanced' tam gdzie możliwe
+    # Modele
     models = {
-        "RandomForest": RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, class_weight='balanced'),
-        "LogisticRegression": LogisticRegression(max_iter=1000, n_jobs=-1, class_weight='balanced'),
-        "HGB": HistGradientBoostingClassifier(max_iter=200)
+        "RandomForest": RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1),
+        "LogisticRegression": LogisticRegression(max_iter=1000, n_jobs=-1),
+        "MLP": MLPClassifier(hidden_layer_sizes=(100,50), max_iter=500, random_state=42)
     }
 
     for name, model in models.items():
@@ -69,7 +69,7 @@ def main():
                     ensemble_used=False,
                     accuracy=acc,
                     f1_score=f1,
-                    notes="Pipeline ML bez imblearn, class_weight='balanced'",
+                    notes="Pipeline ML bez klasy balansowanych, ensemble będzie stosowane",
                     db_path=DB_PATH)
         except Exception as e:
             print(f"Błąd logowania: {e}")
