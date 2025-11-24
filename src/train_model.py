@@ -72,7 +72,7 @@ def main():
                     notes="Pipeline ML bez imblearn, class_weight='balanced'",
                     db_path=DB_PATH)
         except Exception as e:
-            print(f"⚠️ Błąd logowania: {e}")
+            print(f"Błąd logowania: {e}")
 
 if __name__ == "__main__":
     main()

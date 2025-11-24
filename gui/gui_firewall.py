@@ -43,7 +43,7 @@ for key, path in MODEL_FILES.items():
         models_loaded[key] = load(path)
         print(f"✅ Załadowano model: {key}")
     except Exception as e:
-        print(f"⚠️ Nie udało się załadować modelu {key}: {e}")
+        print(f"Nie udało się załadować modelu {key}: {e}")
 
 # -------------------------------------------------------------
 # Import funkcji flow
@@ -138,7 +138,7 @@ def process_packet(pkt, enabled_models):
                     decision = "DROP"
             except Exception as e:
                 preds[name] = "error"
-                print(f"⚠️ Błąd predykcji {name}: {e}")
+                print(f"Błąd predykcji {name}: {e}")
 
         print(f"{datetime.now().isoformat()} | Flow: {flow_key} | Features: {features} | Preds: {preds} | Decision: {decision}")
         log_flow_to_db(flow_key, preds, decision)

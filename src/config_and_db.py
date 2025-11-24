@@ -100,11 +100,11 @@ def init_db(db_path=DB_PATH):
 
     conn.commit()
     conn.close()
-    print(f"✅ Baza danych utworzona lub zaktualizowana: {db_path}")
+    print(f"Baza danych utworzona lub zaktualizowana: {db_path}")
 
 # -------------------------------------------------------------
 # AUTOMATYCZNE WYWOŁANIE PRZY URUCHOMIENIU PLIKU
 # -------------------------------------------------------------
 if __name__ == "__main__":
     init_db()
-    print("🌟 Wszystkie katalogi i tabele gotowe do użycia w projekcie")
+    print("Wszystkie katalogi i tabele gotowe do użycia w projekcie")

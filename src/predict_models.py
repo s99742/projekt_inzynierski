@@ -53,14 +53,14 @@ def ensure_features(input_df, features_csv):
 
 def safe_load_model(path):
     if not os.path.exists(path):
-        print(f"⚠️ Model nie znaleziony: {path}")
+        print(f"Model nie znaleziony: {path}")
         return None
     try:
         m = joblib.load(path)
-        print(f"✅ Załadowano model: {os.path.basename(path)}")
+        print(f"Załadowano model: {os.path.basename(path)}")
         return m
     except Exception as e:
-        print(f"❌ Błąd przy ładowaniu modelu {path}: {e}")
+        print(f"Błąd przy ładowaniu modelu {path}: {e}")
         return None
 
 def predict_with_model(model, X, batch_size=5000):
@@ -133,7 +133,7 @@ def main():
         print(f"Plik wejściowy nie istnieje: {args.input}")
         sys.exit(1)
     in_df = pd.read_csv(args.input, low_memory=False)
-    print(f"✅ Wczytano dane: {in_df.shape[0]} wierszy, {in_df.shape[1]} kolumn")
+    print(f"Wczytano dane: {in_df.shape[0]} wierszy, {in_df.shape[1]} kolumn")
 
     X = ensure_features(in_df, args.features_from)
 
@@ -177,7 +177,6 @@ def main():
     print(f"\n🎉 Zapisano predykcje do: {out_path}")
     print(results.head(10))
 
-    # Spróbuj policzyć metryki jeśli dostępny y_test i zapisz log do DB
     y_test = safe_read_ytest(args.ytest, len(results))
     accuracy = None
     f1 = None

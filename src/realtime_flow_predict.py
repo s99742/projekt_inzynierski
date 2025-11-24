@@ -20,7 +20,7 @@ from scapy.all import IP, TCP, UDP
 from config_and_db import DB_PATH  # ścieżka do bazy
 
 # --- Konfiguracja ---
-FLOW_TIMEOUT = 10  # sekundy, po których flow jest przetwarzany
+FLOW_TIMEOUT = 1  # sekundy, po których flow jest przetwarzany
 
 # Globalne modele (załaduj w GUI/main)
 models = {}
