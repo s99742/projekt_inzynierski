@@ -69,7 +69,7 @@ DB_PATH = os.path.join(LOGS_DIR, "project_logs.db")
 # -------------------------------------------------------------
 # AUTOMATYCZNIE WYKRYTY INTERFEJS
 # -------------------------------------------------------------
-DEFAULT_INTERFACE = detect_active_interface()
+DEFAULT_INTERFACE = 'lo'#detect_active_interface()
 print(f"🌐 Wykryty interfejs sieciowy: {DEFAULT_INTERFACE}")
 
 # -------------------------------------------------------------

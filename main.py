@@ -1,16 +1,22 @@
-# This is a sample Python script.
+#!/usr/bin/env python3
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+from scapy.layers.inet import IP, TCP, UDP, ICMP
+#!/usr/bin/env python3
 
+from scapy.all import *
+#!/usr/bin/env python3
+"""
+Test podejrzanych flowów TCP (np. DoS) dla GUI Firewall.
+Pakiety wysyłane szybko, modele powinny przewidywać DROP.
+"""
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+import time
 
+TARGET_IP = "127.0.0.1"
+TARGET_PORT = 8000  # port monitorowany przez GUI
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+for i in range(50):
+    pkt = IP(dst=TARGET_IP)/TCP(dport=TARGET_PORT, sport=2000+i, flags="S")/"Attack"
+    send(pkt, verbose=False)
+    print(f"Wysłano podejrzany pakiet {i+1}")
+    time.sleep(0.05)  # bardzo szybki ruch → większe prawdopodobieństwo DROP

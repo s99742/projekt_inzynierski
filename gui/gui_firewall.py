@@ -18,7 +18,7 @@ from joblib import load
 # Ścieżki
 # -------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(BASE_DIR)  # żeby importować config i src
+sys.path.append(BASE_DIR)
 
 from config_and_db import DB_PATH, MODEL_DIR, DEFAULT_INTERFACE, init_db
 init_db()  # upewniamy się, że baza istnieje
