@@ -1,28 +1,31 @@
-from firewall_rules import take_mitigation_action
+#!/usr/bin/env python3
 import time
-import sqlite3
 from collections import defaultdict
 from datetime import datetime
+import sqlite3
+import numpy as np
 from scapy.layers.inet import IP, TCP, UDP
 from config_and_db import DB_PATH
+from firewall_rules import take_mitigation_action
 
-# --- Konfiguracja ---
 FLOW_TIMEOUT = 10  # sekundy, po których flow jest przetwarzany
 
-# Globalne modele (załaduj w GUI/main)
-models = {}
-
-# Bufor flow: key = (src_ip, dst_ip, src_port, dst_port, proto)
+# --- Globalny buffer flow ---
 flows = defaultdict(lambda: {
     "timestamps": [],
     "fwd_lengths": [],
     "bwd_lengths": [],
     "fwd_flags": defaultdict(int),
     "bwd_flags": defaultdict(int),
-    "start_time": None
+    "start_time": None,
+    "src_ip": None,
+    "dst_ip": None,
+    "src_port": None,
+    "dst_port": None,
+    "proto": None
 })
 
-# --- Funkcje statystyk ---
+# --- Funkcje statystyczne ---
 def calc_iat(timestamps):
     if len(timestamps) < 2:
         return [0]
@@ -36,7 +39,7 @@ def safe_stats(arr):
     std = (sum([(x-mean)**2 for x in arr])/n)**0.5
     return mean, std, min(arr), max(arr)
 
-# --- Funkcja ekstrakcji cech (78) ---
+# --- Ekstrakcja cech ---
 def extract_flow_features(flow_key, flow_data):
     fwd = flow_data["fwd_lengths"]
     bwd = flow_data["bwd_lengths"]
@@ -58,7 +61,7 @@ def extract_flow_features(flow_key, flow_data):
     bwd_flags = flow_data["bwd_flags"]
 
     features = [0]*78
-    features[0]  = flow_key[3]  # dst_port
+    features[0]  = flow_data["dst_port"]
     features[1]  = end_time - start_time
     features[2]  = total_fwd_pkts
     features[3]  = total_bwd_pkts
@@ -97,8 +100,32 @@ def extract_flow_features(flow_key, flow_data):
                        iat_min, iat_max, iat_mean, iat_std, 0,0,0,0,0,0]
     return features
 
-# --- Przetwarzanie pakietu z integracją iptables ---
-def process_packet(pkt):
+# --- Logowanie do bazy ---
+def log_flow_to_db(flow_key, pkt_count, preds, decision):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        ts = datetime.now().isoformat()
+        c.execute("""
+            INSERT INTO flow_logs(timestamp, src_ip, dst_ip, src_port, dst_port, protocol, prediction, decision)
+            VALUES(?,?,?,?,?,?,?,?)
+        """, (
+            ts,
+            flow_key[0],
+            flow_key[1],
+            flow_key[2],
+            flow_key[3],
+            flow_key[4],
+            str(preds),
+            decision
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("❌ Błąd przy zapisie do DB:", e)
+
+# --- Proces pakietu (jedyna funkcja) ---
+def process_packet(pkt, models=None, gui_callback=None):
     if not (IP in pkt):
         return
 
@@ -108,14 +135,19 @@ def process_packet(pkt):
     src_port = pkt[TCP].sport if TCP in pkt else (pkt[UDP].sport if UDP in pkt else 0)
     dst_port = pkt[TCP].dport if TCP in pkt else (pkt[UDP].dport if UDP in pkt else 0)
 
-    flow_key = (src_ip, dst_ip, src_port, dst_port, proto)
-    ts = time.time()
+    key = (src_ip, dst_ip, src_port, dst_port, proto)
 
-    flow = flows[flow_key]
+    flow = flows[key]
     if flow["start_time"] is None:
-        flow["start_time"] = ts
+        flow["start_time"] = time.time()
+        flow["src_ip"] = src_ip
+        flow["dst_ip"] = dst_ip
+        flow["src_port"] = src_port
+        flow["dst_port"] = dst_port
+        flow["proto"] = proto
 
-    if (src_ip, src_port) == (flow_key[0], flow_key[2]):
+    ts = time.time()
+    if (src_ip, src_port) == (flow["src_ip"], flow["src_port"]):
         flow["fwd_lengths"].append(len(pkt))
         if TCP in pkt:
             for flag in ["FIN","SYN","RST","PSH","ACK","URG"]:
@@ -130,44 +162,44 @@ def process_packet(pkt):
 
     flow["timestamps"].append(ts)
 
-    # timeout
+    # --- timeout ---
     if ts - flow["start_time"] > FLOW_TIMEOUT:
-        features = extract_flow_features(flow_key, flow)
+        features = extract_flow_features(key, flow)
+        pkt_count = len(flow["timestamps"])
         preds = {}
         decision = "ACCEPT"
 
-        # --- średnia ważona modeli ---
-        try:
-            rf_pred  = models["rf"].predict([features])[0]
-            lr_pred  = models["lr"].predict([features])[0]
-            mlp_pred = models["mlp"].predict([features])[0]
+        if models:
+            try:
+                X = np.array(features).reshape(1, -1)
+                for name, model in models.items():
+                    pred = model.predict(X)[0]
+                    preds[name] = int(pred)
+                    if pred != 0:
+                        decision = "DROP"
+            except Exception as e:
+                preds = {k: -1 for k in models.keys()}
+                print("❌ Błąd predykcji:", e)
 
-            weighted = (0.5*rf_pred + 0.5*lr_pred + 0.25*mlp_pred)/1.25
-            decision = "DROP" if weighted >= 1 else "ACCEPT"
+        log_flow_to_db(key, pkt_count, preds, decision)
 
-            preds = {"rf": int(rf_pred), "lr": int(lr_pred), "mlp": int(mlp_pred)}
-        except Exception:
-            preds = {"rf": -1, "lr": -1, "mlp": -1}
+        # firewall
+        if decision == "DROP":
+            try:
+                take_mitigation_action(src_ip, ttl_seconds=600, reason="auto-detect")
+            except Exception as e:
+                print("❌ Błąd firewall_rules:", e)
 
-        # zapis do bazy logs
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute("""
-                INSERT INTO logs(timestamp, src_ip, dst_ip, src_port, dst_port, protocol, prediction, decision)
-                VALUES(?,?,?,?,?,?,?,?)
-            """, (
-                datetime.now().isoformat(), src_ip, dst_ip, src_port, dst_port, proto, str(preds), decision
-            ))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print("❌ Błąd przy zapisie do DB:", e)
+        # GUI callback
+        if gui_callback:
+            try:
+                from tkinter import _default_root
+                gui_callback_safe = lambda k=key, pc=pkt_count, p=preds, d=decision: gui_callback(k, pc, p, d)
+                if _default_root:
+                    _default_root.after(0, gui_callback_safe)
+                else:
+                    gui_callback_safe()
+            except Exception:
+                gui_callback_safe()
 
-        # --- Wywołanie iptables ---
-        try:
-            take_mitigation_action(src_ip, ttl_seconds=600, reason=decision)
-        except Exception as e:
-            print("❌ Błąd firewall_rules:", e)
-
-        flows.pop(flow_key, None)
+        flows.pop(key, None)

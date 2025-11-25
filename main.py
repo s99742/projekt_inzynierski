@@ -9,14 +9,14 @@ from scapy.all import *
 Test podejrzanych flowów TCP (np. DoS) dla GUI Firewall.
 Pakiety wysyłane szybko, modele powinny przewidywać DROP.
 """
-
+#!/usr/bin/env python3
 import time
 
 TARGET_IP = "127.0.0.1"
-TARGET_PORT = 8000  # port monitorowany przez GUI
+TARGET_PORT = 8000
 
 for i in range(50):
     pkt = IP(dst=TARGET_IP)/TCP(dport=TARGET_PORT, sport=2000+i, flags="S")/"Attack"
     send(pkt, verbose=False)
     print(f"Wysłano podejrzany pakiet {i+1}")
-    time.sleep(0.05)  # bardzo szybki ruch → większe prawdopodobieństwo DROP
+    time.sleep(0.05)

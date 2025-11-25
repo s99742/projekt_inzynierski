@@ -1,7 +1,17 @@
+#!/usr/bin/env python3
+"""
+log_db.py
+
+Zarządzanie logami eksperymentów oraz helper do zapisu flow_logs (jeśli potrzebne).
+Uwaga: flowy są zapisywane do tabeli flow_logs (created in config_and_db.init_db).
+"""
+
 import sqlite3
 from datetime import datetime
 from typing import Optional, List, Dict
 from config_and_db import DB_PATH, init_db
+
+init_db()
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS logs (
@@ -52,5 +62,20 @@ def fetch_logs(limit: int = 100, db_path: Optional[str] = None) -> List[Dict]:
         c.execute("SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,))
         rows = c.fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+# helper do zapisu flow (opcjonalne - przydatne przy testach)
+def log_flow(src_ip: str, dst_ip: str, src_port: int, dst_port: int, proto:int, prediction: str, decision: str, db_path: Optional[str] = None):
+    db_path = db_path or DB_PATH
+    init_db()
+    conn = sqlite3.connect(db_path)
+    try:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO flow_logs(timestamp, src_ip, dst_ip, src_port, dst_port, protocol, prediction, decision)
+            VALUES(?,?,?,?,?,?,?,?)
+        """, (datetime.now().isoformat(), src_ip, dst_ip, src_port, dst_port, proto, prediction, decision))
+        conn.commit()
     finally:
         conn.close()

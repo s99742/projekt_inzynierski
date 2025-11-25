@@ -4,13 +4,16 @@ prepare_live_data.py
 
 Moduł do przetwarzania pakietów zapisanych w SQLite w czasie rzeczywistym.
 Tworzy DataFrame gotowy do predykcji ML (cechy takie jak src/dst IP, porty, protokół, długość pakietu).
+Poprawki:
+- użycie DB_PATH z config_and_db
+- bezpieczne rzutowania
 """
 
 import sqlite3
 import pandas as pd
 import os
-
-DB_PATH = "../logs/project_logs.db"
+from config_and_db import DB_PATH
+from datetime import datetime
 
 # --- FUNKCJA POBIERANIA PAKIETÓW ---
 def fetch_new_packets(last_id=0):
@@ -24,16 +27,16 @@ def fetch_new_packets(last_id=0):
     conn = sqlite3.connect(DB_PATH)
     query = f"""
         SELECT * FROM packets
-        WHERE id > {last_id}
+        WHERE id > ?
         ORDER BY id ASC
     """
-    df = pd.read_sql_query(query, conn)
+    df = pd.read_sql_query(query, conn, params=(last_id,))
     conn.close()
 
     if df.empty:
         return pd.DataFrame(), last_id
 
-    new_last_id = df["id"].max()
+    new_last_id = int(df["id"].max())
     return df, new_last_id
 
 # --- FUNKCJA PRZYGOTOWUJĄCA CECHY ---
@@ -43,7 +46,7 @@ def process_features(df):
     - src_port, dst_port jako int
     - protocol jako int
     - długość pakietu
-    - (opcjonalnie) kodowanie IP w prosty sposób
+    - (opcjonalnie) kodowanie IP w prosty sposób (ostatni oktet)
     """
     if df.empty:
         return df
@@ -55,13 +58,13 @@ def process_features(df):
     # Protokół jako int
     df_processed["protocol"] = df["protocol"].fillna(0).astype(int)
     # Długość pakietu
-    df_processed["length"] = df["length"].astype(int)
+    df_processed["length"] = df["length"].fillna(0).astype(int)
 
     # Proste kodowanie IP (ostatni oktet)
     def ip_to_int(ip):
         try:
-            return int(ip.split(".")[-1])
-        except:
+            return int(str(ip).split(".")[-1])
+        except Exception:
             return 0
 
     df_processed["src_ip_octet"] = df["src_ip"].apply(ip_to_int)
@@ -96,8 +99,6 @@ def ensure_features(input_df, features_csv):
     # Uporządkuj kolumny według kolejności
     input_df = input_df[required_cols]
     return input_df
-
-
 
 # --- PRZYKŁADOWE UŻYCIE ---
 if __name__ == "__main__":
