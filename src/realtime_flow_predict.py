@@ -8,7 +8,7 @@ from scapy.layers.inet import IP, TCP, UDP
 from config_and_db import DB_PATH
 from firewall_rules import take_mitigation_action
 
-FLOW_TIMEOUT = 10  # sekundy, po których flow jest przetwarzany
+FLOW_TIMEOUT = 5  # sekundy, po których flow jest przetwarzany
 
 # --- Globalny buffer flow ---
 flows = defaultdict(lambda: {
@@ -122,12 +122,12 @@ def log_flow_to_db(flow_key, pkt_count, preds, decision):
         conn.commit()
         conn.close()
     except Exception as e:
-        print("❌ Błąd przy zapisie do DB:", e)
+        print("Błąd przy zapisie do DB:", e)
 
-# --- Proces pakietu (jedyna funkcja) ---
+# --- Proces pakietu ---
 def process_packet(pkt, models=None, gui_callback=None):
     if not (IP in pkt):
-        return
+        return None
 
     src_ip = pkt[IP].src
     dst_ip = pkt[IP].dst
@@ -147,6 +147,7 @@ def process_packet(pkt, models=None, gui_callback=None):
         flow["proto"] = proto
 
     ts = time.time()
+    # --- kierunek pakietu ---
     if (src_ip, src_port) == (flow["src_ip"], flow["src_port"]):
         flow["fwd_lengths"].append(len(pkt))
         if TCP in pkt:
@@ -162,35 +163,44 @@ def process_packet(pkt, models=None, gui_callback=None):
 
     flow["timestamps"].append(ts)
 
-    # --- timeout ---
+    # --- timeout flowa ---
     if ts - flow["start_time"] > FLOW_TIMEOUT:
         features = extract_flow_features(key, flow)
         pkt_count = len(flow["timestamps"])
         preds = {}
         decision = "ACCEPT"
 
+        # --- MAJORITY VOTE ---
         if models:
             try:
                 X = np.array(features).reshape(1, -1)
+                votes = []
                 for name, model in models.items():
-                    pred = model.predict(X)[0]
-                    preds[name] = int(pred)
-                    if pred != 0:
-                        decision = "DROP"
+                    pred = int(model.predict(X)[0])
+                    preds[name] = pred
+                    votes.append(pred)
+
+                # decyzja na podstawie większości głosów
+                if votes.count(1) > len(votes) // 2:
+                    decision = "DROP"
+                else:
+                    decision = "ACCEPT"
+
             except Exception as e:
                 preds = {k: -1 for k in models.keys()}
-                print("❌ Błąd predykcji:", e)
+                print("Błąd predykcji:", e)
 
+        # log do DB
         log_flow_to_db(key, pkt_count, preds, decision)
 
-        # firewall
+        # firewall reaction
         if decision == "DROP":
             try:
                 take_mitigation_action(src_ip, ttl_seconds=600, reason="auto-detect")
             except Exception as e:
-                print("❌ Błąd firewall_rules:", e)
+                print("Błąd firewall_rules:", e)
 
-        # GUI callback
+        # callback do GUI
         if gui_callback:
             try:
                 from tkinter import _default_root
@@ -203,3 +213,5 @@ def process_packet(pkt, models=None, gui_callback=None):
                 gui_callback_safe()
 
         flows.pop(key, None)
+
+        return key, pkt_count, preds, decision

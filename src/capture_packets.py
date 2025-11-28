@@ -18,7 +18,7 @@ from config_and_db import DB_PATH, DEFAULT_INTERFACE, init_db
 init_db()
 
 INTERFACE = DEFAULT_INTERFACE
-print(f"🌐 Nasłuch na interfejsie: {INTERFACE}")
+print(f"Nasłuch na interfejsie: {INTERFACE}")
 
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
@@ -41,15 +41,15 @@ def process_packet(pkt):
         conn.commit()
         conn.close()
     except Exception as e:
-        print("❌ Błąd process_packet:", e)
+        print("Błąd process_packet:", e)
 
 def main():
     try:
         sniff(iface=INTERFACE, prn=process_packet, store=False)
     except KeyboardInterrupt:
-        print("\n⏹ Zatrzymano przechwytywanie pakietów.")
+        print("\nZatrzymano przechwytywanie pakietów.")
     except Exception as e:
-        print("❌ Błąd sniff:", e)
+        print("Błąd sniff:", e)
 
 if __name__ == "__main__":
     main()

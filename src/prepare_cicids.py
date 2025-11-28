@@ -1,72 +1,56 @@
-import pandas as pd
-import numpy as np
-import glob
+#!/usr/bin/env python3
+"""
+prepare_cicids.py
+
+Tworzy folder cleaned z CICIDS2017.
+- Streaming, brak freeze
+- Mapuje wszystkie attacky na 'ATTACK', zostawia 'BENIGN'
+- Minimalne oczyszczanie (usunięcie brakujących Label)
+"""
+
 import os
-import gc
-from sklearn.preprocessing import LabelEncoder
+import pandas as pd
+from tqdm import tqdm
+from config_and_db import DATA_DIR, CLEAN_DATA_DIR
 
-# -------------------------------------------------------------
-# Skrypt do wstępnego przetwarzania danych CICIDS2017
-# Przetwarza każdy plik osobno, konwertuje typy danych i zwalnia pamięć.
-# -------------------------------------------------------------
+RAW_DIR = os.path.join(DATA_DIR, "CICIDS2017")
+os.makedirs(CLEAN_DATA_DIR, exist_ok=True)
+CHUNKSIZE = 50_000
 
-# Ścieżki
-RAW_PATH = "../data/CICIDS2017/"  # oryginalne pliki CSV
-CLEAN_PATH = "../data/cleaned/"  # docelowy folder dla oczyszczonych plików
+def clean_csv_file(input_path, output_path):
+    chunks = pd.read_csv(input_path, chunksize=CHUNKSIZE, header=0)
+    cleaned_chunks = []
 
-# Utwórz folder docelowy, jeśli nie istnieje
-os.makedirs(CLEAN_PATH, exist_ok=True)
-
-# Znajdź wszystkie pliki CSV
-files = glob.glob(os.path.join(RAW_PATH, "*.csv"))
-print(f"Znaleziono {len(files)} plików do przetworzenia.\n")
-
-# Inicjalizacja enkodera
-le = LabelEncoder()
-
-for f in files:
-    print(f"➡️  Przetwarzanie pliku: {os.path.basename(f)}")
-
-    try:
-        # Wczytaj dane w trybie low_memory=True (szybciej, mniej RAM)
-        chunk = pd.read_csv(f, low_memory=True)
-
-        # Usuń spacje z nazw kolumn
-        chunk.columns = chunk.columns.str.strip()
-
-        # Zamień nieskończoności i usuń wiersze z brakami
-        chunk = chunk.replace([np.inf, -np.inf], np.nan)
-        chunk = chunk.dropna()
-
-        # Jeśli nie ma etykiet, pomiń plik
+    for chunk in chunks:
+        # Usuń wiersze bez Label
         if 'Label' not in chunk.columns:
-            print(f"⚠️  Brak kolumny 'Label' w {os.path.basename(f)} – pomijam.\n")
-            continue
+            # czasem kolumna może mieć spacje
+            chunk.columns = [c.strip() for c in chunk.columns]
 
-        # Konwersja typów danych (float64 → float32, int64 → int32)
-        float_cols = chunk.select_dtypes(include=['float64']).columns
-        int_cols = chunk.select_dtypes(include=['int64']).columns
+        if 'Label' not in chunk.columns:
+            raise ValueError(f"❌ Brak kolumny Label w pliku: {input_path}")
 
-        chunk[float_cols] = chunk[float_cols].astype('float32')
-        chunk[int_cols] = chunk[int_cols].astype('int32')
+        chunk = chunk.dropna(subset=['Label'])
 
-        # Zakoduj kolumnę etykiety
-        chunk['Label'] = le.fit_transform(chunk['Label'])
+        # Mapowanie wszystkich ataków na 'ATTACK'
+        chunk['Label'] = chunk['Label'].apply(lambda x: 'BENIGN' if str(x).upper()=='BENIGN' else 'ATTACK')
 
-        # Zapisz oczyszczony plik
-        clean_name = os.path.basename(f).replace(".csv", "_clean.csv")
-        clean_path = os.path.join(CLEAN_PATH, clean_name)
-        chunk.to_csv(clean_path, index=False)
+        cleaned_chunks.append(chunk)
 
-        print(f"✅ Zapisano: {clean_name} ({chunk.shape[0]} wierszy)\n")
+    if cleaned_chunks:
+        df_cleaned = pd.concat(cleaned_chunks, ignore_index=True)
+        df_cleaned.to_csv(output_path, index=False)
 
-        # Zwolnij pamięć po każdym pliku
-        del chunk
-        gc.collect()
+def main():
+    csv_files = [f for f in os.listdir(RAW_DIR) if f.endswith(".csv")]
+    print(f"📡 Przetwarzanie {len(csv_files)} plików z CICIDS2017...")
 
-    except Exception as e:
-        print(f"❌ Błąd przy przetwarzaniu {os.path.basename(f)}: {e}\n")
-        gc.collect()
+    for f in tqdm(csv_files, desc="Pliki CSV"):
+        input_path = os.path.join(RAW_DIR, f)
+        output_path = os.path.join(CLEAN_DATA_DIR, f.replace(".csv", "_clean.csv"))
+        clean_csv_file(input_path, output_path)
 
-print("🎉 Przetwarzanie zakończone!")
-print(f"Oczyszczone pliki zapisano w folderze: {CLEAN_PATH}")
+    print(f"Czyszczenie zakończone. Pliki zapisane w {CLEAN_DATA_DIR}")
+
+if __name__ == "__main__":
+    main()
